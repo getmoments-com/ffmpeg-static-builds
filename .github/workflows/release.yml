@@ -1,0 +1,56 @@
+name: Build and release static ffmpeg
+
+# Push a tag like `v8.1.2` to build that ffmpeg release and publish it as a GitHub Release
+# with the ffmpeg-release-amd64-static.tar.xz asset (the name every consumer's Dockerfile pulls).
+# A tag suffix is allowed for rebuilds of the same version, e.g. `v8.1.2-nvenc2` -> ffmpeg 8.1.2.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ffmpeg_version:
+        description: 'ffmpeg version to build (e.g. 8.1.2). Blank = Dockerfile default. Builds an artifact only, no release.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve ffmpeg version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            ver="${GITHUB_REF_NAME#v}"   # v8.1.2 -> 8.1.2
+            ver="${ver%%-*}"             # v8.1.2-nvenc2 -> 8.1.2
+          else
+            ver="${{ github.event.inputs.ffmpeg_version }}"
+          fi
+          echo "ffmpeg_version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Building ffmpeg version: ${ver:-<Dockerfile default>}"
+
+      # ubuntu-latest is amd64, so this is a native build (no QEMU emulation).
+      - name: Build static ffmpeg
+        run: bash build-ubuntu.sh "${{ steps.version.outputs.ffmpeg_version }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-release-amd64-static
+          path: output/ffmpeg-release-amd64-static.tar.xz
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            output/ffmpeg-release-amd64-static.tar.xz \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Static ffmpeg/ffprobe (amd64, glibc-dynamic) with NVENC/NVDEC. ffmpeg ${{ steps.version.outputs.ffmpeg_version }}, built from ${GITHUB_SHA}."

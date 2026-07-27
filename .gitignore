@@ -1,0 +1,4 @@
+# Local build output and scratch — the release asset is published by CI, never committed.
+output/
+ffmpeg-*.tar.xz
+ffmpeg-[0-9]*/
